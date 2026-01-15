@@ -29,12 +29,12 @@ LOG_MODULE_REGISTER(eth_adin6310, CONFIG_ETHERNET_LOG_LEVEL);
 #include "SES_interface_management.h"
 
 static SES_portInit_t default_config[6] = {
-	{ 0, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyUnmanaged, {true, 0, 0, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}},
-	{ 0, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyUnmanaged, {true, 0, 1, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}},
-	{ 0, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyADIN1300, {true, 0, 6, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}},
-	{ 0, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyADIN1300, {true, 0, 5, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}},
-	{ 0, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyUnmanaged, {true, 0, 2, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}},
-	{ 0, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyUnmanaged, {true, 0, 3, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}}
+	{ 1, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyADIN1100, {true, 0, 0, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}},
+	{ 1, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyADIN1100, {true, 0, 1, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}},
+	{ 1, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyADIN1300, {true, 0, 6, SES_phySpeed1000, SES_phyDuplexModeFull, SES_autoMdix}},
+	{ 1, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyADIN1300, {true, 0, 5, SES_phySpeed1000, SES_phyDuplexModeFull, SES_autoMdix}},
+	{ 1, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyADIN1100, {true, 0, 2, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}},
+	{ 1, SES_rgmiiMode, { 0, 0, 0 }, 1, SES_phyADIN1100, {true, 0, 3, SES_phySpeed10, SES_phyDuplexModeFull, SES_autoMdix}}
 };
 
 void *SES_PORT_CreateSemaphore(int initCount, int maxCount)
@@ -294,7 +294,7 @@ static int adin6310_port_send(const struct device *dev, struct net_pkt *pkt)
 
 	ret = SES_XmitFrame(&txData_p);
 	if (ret != SES_OK) {
-		LOG_ERR("Port %d failed to send packet", data->id);
+		LOG_ERR("Port %d failed to send packet, err: %d", data->id, ret);
 		return -1;
 	}
 
@@ -475,11 +475,12 @@ static int adin6310_config_ports(const struct device *dev, uint32_t ses_dev_id)
 	for (int i = 0; i < ADIN6310_NUM_PORTS; i++) {
 		default_config[i].enablePort = 1;
 		default_config[i].phyConfig.phyAddr = cfg->phys[i].phy_addr;
+		printf("Configuring Port %d on MDIO Addr: %d\n", i, cfg->phys[i].phy_addr);
 	}
 
 	ret = SES_MX_InitializePorts(ses_dev_id, ADIN6310_NUM_PORTS, default_config);
 	if (ret != SES_OK) {
-		printf("Error SES_MX_InitializePorts() (init)\n");
+		printf("Error SES_MX_InitializePorts() (init)\n = ret=%d", ret);
 		return -1;
 	}
 
@@ -638,6 +639,10 @@ static int adin6310_init(const struct device *dev)
 		goto stop_thread;
 	}
 
+	LOG_INF("Registering ADIN6310 with MAC %02x:%02x:%02x:%02x:%02x:%02x",
+		cpu_port->mac_addr[0], cpu_port->mac_addr[1], cpu_port->mac_addr[2],
+		cpu_port->mac_addr[3], cpu_port->mac_addr[4], cpu_port->mac_addr[5]);
+
 	ret = SES_AddDevice(iface, (uint8_t *)cpu_port->mac_addr, &dev_id);
 	if (ret != SES_OK) {
 		LOG_ERR("SES_AddDevice error %d\n", ret);
@@ -645,10 +650,10 @@ static int adin6310_init(const struct device *dev)
 		goto stop_thread;
 	}
 
-	ret = adin6310_config_ports(dev, dev_id);
+	ret = SES_MX_InitializePorts(dev_id, ADIN6310_NUM_PORTS, default_config);
 	if (ret) {
-		LOG_ERR("SES_MX_InitializePorts error %d\n", ret);
-		goto stop_thread;
+		printf("SES_MX_InitializePorts() error %d\n", ret);
+		return ret;
 	}
 
 	ret = adin6310_set_broadcast_route(dev);
